@@ -1,0 +1,77 @@
+name: Build QT Quyết Toán (Windows)
+
+on:
+  push:
+    paths:
+      - "QT_Desktop/**"
+      - ".github/workflows/build-qt-desktop.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            exe: QT_QuyetToan.exe
+          - arch: x86
+            exe: QT_QuyetToan_32bit.exe
+    defaults:
+      run:
+        working-directory: QT_Desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+          architecture: ${{ matrix.arch }}
+
+      - name: Cài thư viện
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller==6.10.0
+
+      - name: Kiểm thử toàn bộ mẫu biểu
+        run: |
+          python tests/run_all.py "$env:RUNNER_TEMP\qt_selftest"
+          python -c "import qt_app.gui"
+
+      - name: Đóng gói .exe
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed `
+            --name QT_QuyetToan --icon assets/app.ico --add-data "assets;assets" `
+            --version-file version_info.txt --exclude-module numpy --exclude-module pandas `
+            main.py
+          Rename-Item dist/QT_QuyetToan.exe ${{ matrix.exe }} -ErrorAction SilentlyContinue
+          Get-ChildItem dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.exe }}
+          path: QT_Desktop/dist/${{ matrix.exe }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: qt-desktop-v2.0.0
+          name: QT Quyết Toán 2.0.0 (Tác giả 8702 - Nguyễn Quốc Đạt)
+          target_commitish: ${{ github.sha }}
+          body: |
+            Ứng dụng tạo mẫu biểu quyết toán – bản desktop cho Windows.
+            - QT_QuyetToan.exe: bản 64-bit (khuyên dùng, Windows 8/10/11 64-bit)
+            - QT_QuyetToan_32bit.exe: bản 32-bit cho máy Windows 32-bit/cấu hình cũ
+            Tải về và chạy trực tiếp, không cần cài đặt, không cần Microsoft Excel.
+          files: dist/*.exe
