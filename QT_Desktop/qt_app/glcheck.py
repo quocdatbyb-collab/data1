@@ -52,19 +52,29 @@ class GLBook:
         return found
 
 
+GL_NAME_HINTS = ("glcb41", "candoi", "can_doi", "can doi", "cdtk", "cd_tk", "cdkt", "balance")
+
+
+def is_gl_name(name: str) -> bool:
+    b = vn.norm_key(os.path.basename(name)).replace(" ", "")
+    return any(h.replace(" ", "") in b for h in GL_NAME_HINTS)
+
+
 def find_gl_files(folder: str):
     out = []
     for p in glob.glob(os.path.join(folder, "*")):
         b = os.path.basename(p).lower()
-        if "glcb41" in b and b.endswith((".csv", ".txt", ".tsv")):
+        if is_gl_name(b) and b.endswith((".csv", ".txt", ".tsv")):
             out.append(p)
     return sorted(out)
 
 
-def load_gl(folder: str, ctx) -> GLBook:
+def load_gl(folder: str, ctx, files=None) -> GLBook:
+    """Đọc file cân đối: các file chỉ định (files) hoặc tự tìm trong thư mục."""
     book = GLBook()
     m = ctx.colmap("gl")
-    for p in find_gl_files(folder):
+    paths = [f for f in (files or []) if f and os.path.isfile(f)] or find_gl_files(folder)
+    for p in paths:
         data = read_sources([p], ctx.encoding)
         mb = re.match(r"^(\d{4})", os.path.basename(p))
         brcd = mb.group(1) if mb else ""
@@ -177,7 +187,13 @@ def build_mau30(ctx, items, book: GLBook, form_code: str, branches=None, subtota
     total_refs = {4: [], 5: [], 6: []}
 
     def gl_of(brcd, acct):
-        return book.lookup(brcd, acct, "000")
+        v = book.lookup(brcd, acct, "000")
+        if v is None:
+            # File cân đối không có dòng quy đổi "000": tài khoản chỉ có VND thì lấy số dư VND
+            ccys = {c for (b, a, c) in _by_ccy if a == acct and b == brcd}
+            if ccys <= {"VND"}:
+                v = book.lookup(brcd, acct, "VND")
+        return v
 
     for acct in accts:
         start = m30.next_row()

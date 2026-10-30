@@ -11,7 +11,7 @@
 
 ## Tải về
 
-Vào mục **Releases** của kho mã → bản `qt-desktop-v2.1.0`:
+Vào mục **Releases** của kho mã → bản `qt-desktop-v2.1.1`:
 
 | File | Dùng cho |
 |---|---|

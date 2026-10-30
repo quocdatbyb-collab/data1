@@ -55,7 +55,7 @@ def discover(folder, settings, store=None, only_branches=False):
     for p in sorted(glob.glob(os.path.join(folder, "*"))):
         if not p.lower().endswith((".csv", ".txt")):
             continue
-        if "glcb41" in os.path.basename(p).lower():
+        if glcheck.is_gl_name(p):
             continue
         brcd, raw = reader.parse_filename(p)
         if not brcd:
@@ -123,6 +123,22 @@ def _preview_of(sheet, limit=300):
     return headers, rows
 
 
+def check_columns(data, min_cols, job):
+    """Báo lỗi rõ ràng khi file không đúng cấu trúc mẫu (vd chọn nhầm file cân đối)."""
+    if not min_cols or not data.rows:
+        return
+    short = sum(1 for r in data.rows if len(r) < min_cols)
+    if short > len(data.rows) * 0.3:
+        ncol = max(len(r) for r in data.rows)
+        hint = ""
+        if ncol <= 15:
+            hint = ("\nFile này có thể là FILE CÂN ĐỐI TÀI KHOẢN (glcb41). Hãy chọn nó ở ô 'File cân đối' "
+                    "(hoặc đổi tên có chữ glcb41, vd %s_glcb41.txt) thay vì chọn làm dữ liệu mẫu." % job.brcd)
+        raise ValueError("File %s chỉ có %d cột, mẫu %s cần ít nhất %d cột (%d/%d dòng thiếu cột).%s" % (
+            ", ".join(os.path.basename(f) for f in data.files), ncol, job.code, min_cols, short,
+            len(data.rows), hint))
+
+
 class Runner:
     """Chạy job; log(msg) và progress(phần trăm, nội dung) là hàm gọi lại."""
 
@@ -134,10 +150,11 @@ class Runner:
         self.cancel = cancel
         self._gl_cache = {}
 
-    def _gl(self, folder, ctx):
-        if folder not in self._gl_cache:
-            self._gl_cache[folder] = glcheck.load_gl(folder, ctx)
-        return self._gl_cache[folder]
+    def _gl(self, folder, ctx, files=None):
+        key = (folder, tuple(files or ()))
+        if key not in self._gl_cache:
+            self._gl_cache[key] = glcheck.load_gl(folder, ctx, files)
+        return self._gl_cache[key]
 
     def run(self, job: Job, options, out_dir=None) -> Result:
         res = Result()
@@ -157,6 +174,7 @@ class Runner:
         else:
             spec = forms.FORMS[job.code]
             data = reader.read_sources(job.files, ctx.encoding, spec.get("min_cols", 0), limit)
+            check_columns(data, spec.get("min_cols", 0), job)
         res.rows_read = len(data.rows)
         self.log("Đọc %d dòng từ %d file (mã ký tự: %s, phân cách: %s)%s" % (
             len(data.rows), len(data.files), data.encoding or "-", "TAB" if data.delimiter == "\t" else data.delimiter,
@@ -185,7 +203,9 @@ class Runner:
                 break
             sheets = list(out.sheets)
             if out.gl_items is not None and ctx.opt("kiem_tra_gl"):
-                book = self._gl(job.folder, ctx)
+                book = self._gl(job.folder, ctx, options.get("gl_files"))
+                if book.files:
+                    self.log("  Cân đối: " + ", ".join(os.path.basename(f) for f in book.files))
                 extra, diffs, missing = glcheck.build_check_sheets(ctx, out.gl_items, book, out.gl_label)
                 sheets += extra
                 if book.empty:
@@ -267,6 +287,7 @@ def consolidate(settings, jobs, code, parent_brcd, options, out_dir=None, log=No
         ctx = Context(settings, job.brcd, options)
         limit = TEST_LIMIT if options.get("kiemtra") else 0
         data = reader.read_sources(job.files, ctx.encoding, spec.get("min_cols", 0), limit)
+        check_columns(data, spec.get("min_cols", 0), job)
         outs = spec["run"](ctx, data)
         data.rows = []
         main = next((o for o in outs if o.code == code), outs[0])
@@ -277,7 +298,7 @@ def consolidate(settings, jobs, code, parent_brcd, options, out_dir=None, log=No
             for sh in main.sheets:
                 details.append(sh)
         if job.folder not in gl_books:
-            gl_books[job.folder] = glcheck.load_gl(job.folder, ctx)
+            gl_books[job.folder] = glcheck.load_gl(job.folder, ctx, options.get("gl_files"))
             b = gl_books[job.folder]
             book.files += b.files
             book.by_branch.update(b.by_branch)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import glob
+import hashlib
 import io
 import os
 import re
@@ -108,8 +109,11 @@ def read_text_rows(text: str, delimiter: str | None = None):
 
 def repair_rows(rows, min_cols: int):
     """Ghép các dòng bị ngắt giữa chừng (ít cột hơn quy định) với dòng kế tiếp."""
-    if not min_cols:
+    if not min_cols or not rows:
         return rows
+    short = sum(1 for r in rows if len(r) < min_cols)
+    if short > len(rows) * 0.3:
+        return rows  # phần lớn dòng thiếu cột: sai loại file, không ghép để còn báo lỗi rõ ràng
     out = []
     i = 0
     n = len(rows)
@@ -137,6 +141,8 @@ def find_parts(path: str):
         if not base.lower().endswith((".csv", ".txt")):
             continue
         b_stem = os.path.splitext(base)[0]
+        if any(h in b_stem.lower() for h in ("glcb41", "candoi", "can_doi", "cdtk")):
+            continue
         if b_stem.lower() == prefix.lower() or re.match(re.escape(prefix) + r"[_\- (]", b_stem, re.I):
             parts.append(p)
     if path not in parts and os.path.exists(path):
@@ -148,9 +154,16 @@ def read_sources(paths, encoding: str = ENCODING_AUTO, min_cols: int = 0, limit:
     """Đọc và ghép nhiều file. Dòng đầu mỗi file là tiêu đề và được bỏ qua."""
     data = SourceData()
     encs = []
+    seen = {}
     for p in paths:
         with open(p, "rb") as f:
             raw = f.read()
+        digest = hashlib.md5(raw).hexdigest()
+        if digest in seen:
+            data.warnings.append("Bỏ qua %s vì trùng nội dung với %s (tránh cộng trùng số liệu)" % (
+                os.path.basename(p), os.path.basename(seen[digest])))
+            continue
+        seen[digest] = p
         text, enc = _decode(raw, encoding)
         del raw
         encs.append(enc)

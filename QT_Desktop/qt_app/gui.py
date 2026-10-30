@@ -426,6 +426,15 @@ class SinglePage(tk.Frame):
         self.form_cb.grid(row=1, column=1, columnspan=3, sticky="w", padx=(6, 0), pady=(8, 0))
         self.files_lbl = ttk.Label(info, text="", style="Muted.TLabel", wraplength=760, justify="left")
         self.files_lbl.grid(row=2, column=0, columnspan=4, sticky="w", pady=(8, 0))
+        glr = tk.Frame(b, bg=C_CARD)
+        glr.pack(fill="x", pady=(10, 0))
+        ttk.Label(glr, text="File cân đối TK (glcb41):").pack(side="left")
+        self.gl_path = tk.StringVar()
+        ttk.Entry(glr, textvariable=self.gl_path).pack(side="left", fill="x", expand=True, padx=8, ipady=2)
+        ttk.Button(glr, text="Chọn...", command=self.pick_gl).pack(side="left")
+        ttk.Button(glr, text="Bỏ", command=lambda: (self.gl_path.set(""), self._gl_hint())).pack(side="left", padx=(6, 0))
+        self.gl_lbl = ttk.Label(b, text="", style="Muted.TLabel", wraplength=760, justify="left")
+        self.gl_lbl.pack(anchor="w", pady=(2, 0))
         self.refresh_forms()
 
         c2 = Card(self, "2. Tuỳ chọn & nơi lưu kết quả")
@@ -510,8 +519,37 @@ class SinglePage(tk.Frame):
         except OSError as e:
             msg += "\nKhông đọc được file: %s" % e
         self.files_lbl.configure(text=msg)
+        self._gl_hint()
         if not quiet:
             self.log.write("Đã chọn %s" % os.path.basename(p))
+
+    def pick_gl(self):
+        init = os.path.dirname(self.path.get()) if self.path.get() else None
+        p = filedialog.askopenfilename(title="Chọn file cân đối tài khoản (glcb41) để lập CheckGL / Mẫu 30",
+                                       initialdir=init, filetypes=[("File cân đối", "*.csv *.CSV *.txt *.TXT"),
+                                                                   ("Tất cả", "*.*")])
+        if p:
+            self.gl_path.set(p)
+            self._gl_hint()
+
+    def _gl_hint(self):
+        p = self.gl_path.get().strip()
+        if p:
+            try:
+                info = engine.quick_info(p, self.app.settings.get("ma_ky_tu"))
+                txt = "Dùng file cân đối: %s · %d cột · %s" % (os.path.basename(p), len(info.header),
+                                                             "TAB" if info.delimiter == "\t" else info.delimiter)
+            except OSError as e:
+                txt = "Không đọc được file cân đối: %s" % e
+        else:
+            folder = os.path.dirname(self.path.get()) if self.path.get() else ""
+            found = glcheck.find_gl_files(folder) if folder and os.path.isdir(folder) else []
+            if found:
+                txt = "Tự tìm thấy file cân đối: " + ", ".join(os.path.basename(f) for f in found)
+            else:
+                txt = ("⚠ Chưa có file cân đối: CheckGL/Mẫu 30 sẽ để '?' ở cột cân đối. Hãy bấm 'Chọn...' để chọn "
+                       "file cân đối xuất từ IPCAS (hoặc đặt tên có chữ glcb41 trong cùng thư mục).")
+        self.gl_lbl.configure(text=txt)
 
     def pick_out(self):
         d = filedialog.askdirectory(title="Chọn thư mục lưu kết quả")
@@ -537,6 +575,8 @@ class SinglePage(tk.Frame):
         self.log.write("Bắt đầu: %s_%s — %s" % (brcd, code, engine.form_label(code)))
         self.run_btn.state(["disabled"])
         opts = self.app.options()
+        if self.gl_path.get().strip():
+            opts["gl_files"] = [self.gl_path.get().strip()]
         self.app.start(self._work, job, opts, self.out_dir.get().strip() or None)
 
     def _work(self, job, opts, out_dir):
@@ -803,6 +843,12 @@ class ConsolidatePage(tk.Frame):
         self.form_cb = ttk.Combobox(g2, textvariable=self.form_var, state="readonly", width=60)
         self.form_cb.grid(row=1, column=1, columnspan=2, sticky="w", padx=6, pady=(8, 0))
         self.form_cb.bind("<<ComboboxSelected>>", lambda e: self.render())
+        ttk.Label(g2, text="File cân đối (tuỳ chọn):").grid(row=4, column=0, sticky="w", pady=(8, 0))
+        self.gl_files = []
+        self.gl_sel_lbl = ttk.Label(g2, text="Tự tìm file có chữ glcb41 trong thư mục", style="Muted.TLabel")
+        self.gl_sel_lbl.grid(row=4, column=2, sticky="w", pady=(8, 0))
+        ttk.Button(g2, text="Chọn các file cân đối...", command=self.pick_gl).grid(row=4, column=1, sticky="w",
+                                                                                  padx=6, pady=(8, 0))
         self.v_detail = tk.BooleanVar(value=True)
         ttk.Checkbutton(g2, text="Kèm sheet chi tiết từng chi nhánh", variable=self.v_detail).grid(
             row=2, column=0, columnspan=2, sticky="w", pady=(8, 0))
@@ -832,6 +878,13 @@ class ConsolidatePage(tk.Frame):
         self.rows = []
         self.paths = []
 
+    def pick_gl(self):
+        ps = filedialog.askopenfilenames(title="Chọn file cân đối của các chi nhánh (tên bắt đầu bằng mã CN)",
+                                         filetypes=[("File cân đối", "*.csv *.CSV *.txt *.TXT"), ("Tất cả", "*.*")])
+        if ps:
+            self.gl_files = list(ps)
+            self.gl_sel_lbl.configure(text="%d file: %s" % (len(ps), ", ".join(os.path.basename(p) for p in ps)[:120]))
+
     def _pname(self):
         self.parent_name.configure(text=self.app.settings.branch_name(self.parent.get().strip()) or "")
 
@@ -848,8 +901,7 @@ class ConsolidatePage(tk.Frame):
             return
         self.app.settings.set("thu_muc_tong_hop", d)
         jobs = engine.discover(d, self.app.settings, None)
-        gl_files = {os.path.basename(p)[:4] for p in glcheck.find_gl_files(d)}
-        self.gl_files = gl_files
+        self.gl_codes = {os.path.basename(p)[:4] for p in (self.gl_files or glcheck.find_gl_files(d))}
         self.found = {}
         for j in jobs:
             if j.code in glcheck.MAU30_FORMS:
@@ -877,7 +929,7 @@ class ConsolidatePage(tk.Frame):
             for j in self.found.get(code, []):
                 iid = str(len(self.rows))
                 self.rows.append(j)
-                gl = "Có" if j.brcd in getattr(self, "gl_files", set()) else "Không có file %s_glcb41" % j.brcd
+                gl = "Có" if j.brcd in getattr(self, "gl_codes", set()) else "Không có file %s_glcb41" % j.brcd
                 self.grid_.tree.insert("", "end", iid=iid, values=(
                     "☑" if j.checked else "☐", code, j.brcd, self.app.settings.branch_name(j.brcd), len(j.files), gl))
         self._count()
@@ -917,7 +969,10 @@ class ConsolidatePage(tk.Frame):
             return
         self.app.settings.set("cn_tong_hop", parent)
         self.run_btn.state(["disabled"])
-        self.app.start(self._work, todo, parent, self.app.options(), self.v_detail.get())
+        opts = self.app.options()
+        if self.gl_files:
+            opts["gl_files"] = list(self.gl_files)
+        self.app.start(self._work, todo, parent, opts, self.v_detail.get())
 
     def _work(self, todo, parent, opts, detail):
         app = self.app
