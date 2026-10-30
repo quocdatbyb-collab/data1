@@ -13,7 +13,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 
 from . import APP_NAME, APP_TITLE, AUTHOR, VERSION
-from . import custom, engine, forms, reader, vn
+from . import custom, engine, forms, glcheck, reader, vn
 from .settings import Settings, SIGNERS
 
 # ---------------------------------------------------------------------------
@@ -251,7 +251,7 @@ class App(tk.Tk):
         side.pack(side="left", fill="y")
         side.pack_propagate(False)
         self.nav = {}
-        items = [("single", "Tạo mẫu biểu"), ("batch", "Xử lý hàng loạt"),
+        items = [("single", "Tạo mẫu biểu"), ("batch", "Xử lý hàng loạt"), ("consolidate", "Tổng hợp chi nhánh"),
                  ("templates", "Mẫu biểu tuỳ chỉnh"), ("columns", "Cột dữ liệu"),
                  ("settings", "Cài đặt"), ("help", "Hướng dẫn"), ("about", "Giới thiệu")]
         tk.Label(side, text="CHỨC NĂNG", bg=C_SIDEBAR, fg="#9CA3AF", font=(FONT, 8, "bold"), anchor="w").pack(
@@ -274,6 +274,7 @@ class App(tk.Tk):
         self.pages = {
             "single": SinglePage(self.content, self),
             "batch": BatchPage(self.content, self),
+            "consolidate": ConsolidatePage(self.content, self),
             "templates": TemplatePage(self.content, self),
             "columns": ColumnsPage(self.content, self),
             "settings": SettingsPage(self.content, self),
@@ -762,6 +763,193 @@ class BatchPage(tk.Frame):
 
 
 # ---------------------------------------------------------------------------
+# Trang: Tổng hợp nhiều chi nhánh (Mẫu 30)
+# ---------------------------------------------------------------------------
+
+
+class ConsolidatePage(tk.Frame):
+    ALL = "Tất cả các mẫu có trong thư mục"
+
+    def __init__(self, master, app: App):
+        super().__init__(master, bg=C_BG)
+        self.app = app
+        self.found = {}   # code -> [Job]
+        c = Card(self, "Tổng hợp số liệu toàn chi nhánh (Mẫu 30/QT) – gộp nhiều chi nhánh trực thuộc")
+        c.pack(fill="x")
+        ttk.Label(c.body, justify="left", wraplength=900, style="Muted.TLabel", text=(
+            "Đặt file dữ liệu của các chi nhánh trực thuộc vào cùng một thư mục (vd 5501_rt13.csv, 5502_rt13.csv...) "
+            "kèm file cân đối của từng chi nhánh (5501_glcb41.txt, 5502_glcb41.txt...). Chương trình lập file "
+            "<mã CN tổng hợp>_<mẫu>_TongHop.xlsx: sheet 1 là Mẫu 30 (số dư cân đối IPCAS – số liệu báo cáo – chênh lệch "
+            "theo từng chi nhánh, từng tài khoản), tiếp theo là sheet đối chiếu và sheet chi tiết từng chi nhánh.")).pack(
+            anchor="w")
+        row = tk.Frame(c.body, bg=C_CARD)
+        row.pack(fill="x", pady=(8, 0))
+        self.folder = tk.StringVar(value=app.settings.get("thu_muc_tong_hop"))
+        ttk.Entry(row, textvariable=self.folder).pack(side="left", fill="x", expand=True, ipady=2)
+        ttk.Button(row, text="Chọn thư mục...", command=self.pick).pack(side="left", padx=(8, 0))
+        ttk.Button(row, text="Quét thư mục", style="Accent.TButton", command=self.scan).pack(side="left", padx=(8, 0))
+        g2 = tk.Frame(c.body, bg=C_CARD)
+        g2.pack(fill="x", pady=(10, 0))
+        ttk.Label(g2, text="Mã chi nhánh tổng hợp (loại I/II):").grid(row=0, column=0, sticky="w")
+        first = app.settings.branches[0][0] if app.settings.branches else ""
+        self.parent = tk.StringVar(value=app.settings.get("cn_tong_hop") or first)
+        ttk.Entry(g2, textvariable=self.parent, width=8).grid(row=0, column=1, sticky="w", padx=6)
+        self.parent_name = ttk.Label(g2, text="", foreground=C_PRIMARY)
+        self.parent_name.grid(row=0, column=2, sticky="w", padx=6)
+        self.parent.trace_add("write", lambda *a: self._pname())
+        self._pname()
+        ttk.Label(g2, text="Mẫu cần tổng hợp:").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        self.form_var = tk.StringVar(value=self.ALL)
+        self.form_cb = ttk.Combobox(g2, textvariable=self.form_var, state="readonly", width=60)
+        self.form_cb.grid(row=1, column=1, columnspan=2, sticky="w", padx=6, pady=(8, 0))
+        self.form_cb.bind("<<ComboboxSelected>>", lambda e: self.render())
+        self.v_detail = tk.BooleanVar(value=True)
+        ttk.Checkbutton(g2, text="Kèm sheet chi tiết từng chi nhánh", variable=self.v_detail).grid(
+            row=2, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        ttk.Checkbutton(g2, text="Tô màu", variable=app.opt_tomau).grid(row=2, column=2, sticky="w", pady=(8, 0))
+        ttk.Checkbutton(g2, text="Chế độ xem thử (50 dòng đầu mỗi chi nhánh)", variable=app.opt_kiemtra).grid(
+            row=3, column=0, columnspan=3, sticky="w", pady=(4, 0))
+
+        self.log = LogBox(self, height=6)
+        self.log.pack(side="bottom", fill="x", pady=(10, 0))
+        mid = Card(self, "")
+        mid.pack(fill="both", expand=True, pady=(10, 0))
+        bar = tk.Frame(mid.body, bg=C_CARD)
+        bar.pack(fill="x", pady=(0, 6))
+        ttk.Button(bar, text="Chọn tất cả", command=lambda: self.mark(True)).pack(side="left")
+        ttk.Button(bar, text="Bỏ chọn", command=lambda: self.mark(False)).pack(side="left", padx=6)
+        self.count = ttk.Label(bar, text="", style="Muted.TLabel")
+        self.count.pack(side="left", padx=8)
+        self.open_btn = ttk.Button(bar, text="Mở file tổng hợp", command=self.open_result, state="disabled")
+        self.open_btn.pack(side="right")
+        self.run_btn = ttk.Button(bar, text="▶  LẬP FILE TỔNG HỢP", style="Primary.TButton", command=self.run)
+        self.run_btn.pack(side="right", padx=8)
+        self.grid_ = Grid(mid.body, height=8)
+        self.grid_.pack(fill="both", expand=True)
+        self.grid_.set_columns(["Chọn", "Mẫu", "Mã CN", "Tên chi nhánh", "Số file", "Cân đối GL"],
+                               [52, 70, 70, 220, 70, 260])
+        self.grid_.tree.bind("<Button-1>", self.on_click)
+        self.rows = []
+        self.paths = []
+
+    def _pname(self):
+        self.parent_name.configure(text=self.app.settings.branch_name(self.parent.get().strip()) or "")
+
+    def pick(self):
+        d = filedialog.askdirectory(title="Chọn thư mục chứa dữ liệu các chi nhánh")
+        if d:
+            self.folder.set(d)
+            self.scan()
+
+    def scan(self):
+        d = self.folder.get().strip()
+        if not d or not os.path.isdir(d):
+            messagebox.showwarning(APP_NAME, "Hãy chọn thư mục chứa dữ liệu.")
+            return
+        self.app.settings.set("thu_muc_tong_hop", d)
+        jobs = engine.discover(d, self.app.settings, None)
+        gl_files = {os.path.basename(p)[:4] for p in glcheck.find_gl_files(d)}
+        self.gl_files = gl_files
+        self.found = {}
+        for j in jobs:
+            if j.code in glcheck.MAU30_FORMS:
+                self.found.setdefault(j.code, []).append(j)
+                j.checked = True
+        labels = [self.ALL] + ["%s — %s (%d CN)" % (c, forms.FORMS[c]["name"], len(self.found[c]))
+                               for c in glcheck.MAU30_FORMS if c in self.found]
+        self.form_cb["values"] = labels
+        self.form_var.set(self.ALL)
+        self.render()
+        self.log.write("Quét %s: %d mẫu, %d file cân đối glcb41" % (d, len(self.found), len(glcheck.find_gl_files(d))))
+        if not self.found:
+            messagebox.showinfo(APP_NAME, "Không tìm thấy file của các mẫu cần tổng hợp (13, 15a, 15b, 18, 20a, 22, 24a...).")
+
+    def _codes(self):
+        v = self.form_var.get()
+        if v == self.ALL:
+            return [c for c in glcheck.MAU30_FORMS if c in self.found]
+        return [v.split(" ")[0]]
+
+    def render(self):
+        self.grid_.clear()
+        self.rows = []
+        for code in self._codes():
+            for j in self.found.get(code, []):
+                iid = str(len(self.rows))
+                self.rows.append(j)
+                gl = "Có" if j.brcd in getattr(self, "gl_files", set()) else "Không có file %s_glcb41" % j.brcd
+                self.grid_.tree.insert("", "end", iid=iid, values=(
+                    "☑" if j.checked else "☐", code, j.brcd, self.app.settings.branch_name(j.brcd), len(j.files), gl))
+        self._count()
+
+    def _count(self):
+        n = sum(1 for j in self.rows if j.checked)
+        self.count.configure(text="Đã chọn %d / %d" % (n, len(self.rows)))
+
+    def mark(self, val):
+        for i, j in enumerate(self.rows):
+            j.checked = val
+            self.grid_.tree.set(str(i), "c0", "☑" if val else "☐")
+        self._count()
+
+    def on_click(self, ev):
+        if self.grid_.tree.identify_column(ev.x) != "#1":
+            return
+        iid = self.grid_.tree.identify_row(ev.y)
+        if iid:
+            j = self.rows[int(iid)]
+            j.checked = not j.checked
+            self.grid_.tree.set(iid, "c0", "☑" if j.checked else "☐")
+            self._count()
+
+    def run(self):
+        parent = self.parent.get().strip()
+        if not parent:
+            messagebox.showwarning(APP_NAME, "Hãy nhập mã chi nhánh tổng hợp (vd 5500).")
+            return
+        todo = []
+        for code in self._codes():
+            sel = [j for j in self.found.get(code, []) if j.checked]
+            if sel:
+                todo.append((code, sel))
+        if not todo:
+            messagebox.showinfo(APP_NAME, "Chưa chọn chi nhánh nào. Hãy bấm 'Quét thư mục'.")
+            return
+        self.app.settings.set("cn_tong_hop", parent)
+        self.run_btn.state(["disabled"])
+        self.app.start(self._work, todo, parent, self.app.options(), self.v_detail.get())
+
+    def _work(self, todo, parent, opts, detail):
+        app = self.app
+        paths = []
+        for code, jobs in todo:
+            app.post("call", self.log.write, "─ Tổng hợp mẫu %s (%d chi nhánh)" % (code, len(jobs)))
+            try:
+                path, _prev = engine.consolidate(
+                    app.settings, jobs, code, parent, opts, app.settings.get("thu_muc_ket_qua") or None,
+                    log=lambda m: app.post("call", self.log.write, "   " + m),
+                    progress=lambda p, t="": app.post("progress", p, t), cancel=app.cancel, detail=detail)
+                paths.append(path)
+            except Exception as e:  # noqa: BLE001
+                app.post("call", self.log.write, "LỖI mẫu %s: %s" % (code, e))
+        app.post("call", self._done, paths)
+
+    def _done(self, paths):
+        self.run_btn.state(["!disabled"])
+        self.paths = paths
+        self.open_btn.state(["!disabled"] if paths else ["disabled"])
+        self.log.write("HOÀN THÀNH: %d file tổng hợp" % len(paths))
+        if paths and messagebox.askyesno(APP_NAME, "Đã lập %d file tổng hợp:\n%s\n\nMở file ngay?" % (
+                len(paths), "\n".join(os.path.basename(p) for p in paths))):
+            self.open_result()
+
+    def open_result(self):
+        for p in self.paths:
+            if os.path.exists(p):
+                open_path(p)
+
+
+# ---------------------------------------------------------------------------
 # Trang: Mẫu biểu tuỳ chỉnh
 # ---------------------------------------------------------------------------
 
@@ -1218,6 +1406,12 @@ HELP = """HƯỚNG DẪN SỬ DỤNG
    • Chọn file → chương trình tự nhận mã chi nhánh và mẫu biểu (có thể chọn lại).
    • "Chế độ xem thử" = xuất nhanh 50 dòng đầu để kiểm tra trước.
    • Bấm TẠO MẪU BIỂU (F5) và chờ thông báo hoàn thành.
+
+3a. TỔNG HỢP CHI NHÁNH  (Mẫu 30/QT)
+   • Đặt dữ liệu các chi nhánh trực thuộc (5501_rt13.csv, 5502_rt13.csv...) và file cân đối từng chi nhánh
+     (5501_glcb41.txt, 5502_glcb41.txt...) vào một thư mục → Quét → nhập mã CN tổng hợp (vd 5500) → Lập file.
+   • Kết quả <mã CN>_<mẫu>_TongHop.xlsx: sheet 1 = Mẫu 30 (cân đối – báo cáo – chênh lệch theo chi nhánh,
+     tài khoản, có dòng cộng từng tài khoản), sheet CheckGL, rồi sheet chi tiết từng chi nhánh.
 
 3. XỬ LÝ HÀNG LOẠT  (toàn tỉnh)
    • Chọn thư mục (VD: X:\\20241231\\) → Quét → tích chọn → Chạy.

@@ -234,3 +234,85 @@ def quick_info(path, encoding="auto"):
     """Đọc nhanh vài trăm dòng để hiển thị thông tin file."""
     data = reader.read_sources([path], encoding, 0, 300)
     return data
+
+
+# ---------------------------------------------------------------------------
+# Tổng hợp nhiều chi nhánh (Mẫu 30 + sheet chi tiết từng chi nhánh)
+# ---------------------------------------------------------------------------
+
+
+def discover_branches(folder, code, settings, store=None):
+    """Các chi nhánh có file dữ liệu của mẫu `code` trong thư mục."""
+    return [j for j in discover(folder, settings, store) if j.code == code]
+
+
+def consolidate(settings, jobs, code, parent_brcd, options, out_dir=None, log=None, progress=None,
+                cancel=None, detail=True):
+    """Tạo file tổng hợp: sheet 1 = Mẫu 30 toàn chi nhánh, sheet CheckGL, rồi sheet chi tiết từng chi nhánh."""
+    log = log or (lambda m: None)
+    progress = progress or (lambda p, t="": None)
+    if not jobs:
+        raise ValueError("Không có chi nhánh nào để tổng hợp.")
+    spec = forms.FORMS[code]
+    parent = Context(settings, parent_brcd, options)
+    all_items, details, branches = [], [], []
+    gl_books = {}
+    book = glcheck.GLBook()
+    n = len(jobs)
+    for k, job in enumerate(jobs):
+        if cancel is not None and cancel.is_set():
+            log("! Đã dừng theo yêu cầu.")
+            break
+        progress(5 + 60.0 * k / n, "Đang đọc %s_%s (%d/%d)..." % (job.brcd, job.raw_code, k + 1, n))
+        ctx = Context(settings, job.brcd, options)
+        limit = TEST_LIMIT if options.get("kiemtra") else 0
+        data = reader.read_sources(job.files, ctx.encoding, spec.get("min_cols", 0), limit)
+        outs = spec["run"](ctx, data)
+        data.rows = []
+        main = next((o for o in outs if o.code == code), outs[0])
+        items = main.gl_items or []
+        all_items += items
+        branches.append(job.brcd)
+        if detail:
+            for sh in main.sheets:
+                details.append(sh)
+        if job.folder not in gl_books:
+            gl_books[job.folder] = glcheck.load_gl(job.folder, ctx)
+            b = gl_books[job.folder]
+            book.files += b.files
+            book.by_branch.update(b.by_branch)
+            book.by_acct.update(b.by_acct)
+        log("%s – %s: %d dòng, %d tài khoản" % (job.brcd, settings.branch_name(job.brcd) or "",
+                                                 len(main.sheets[0].rows) if main.sheets else 0,
+                                                 len({i.acct for i in items})))
+    if book.empty:
+        log("! Không có file cân đối *glcb41* – cột 'Số dư trên cân đối IPCAS' để '?'")
+    elif not book.by_branch:
+        log("! File cân đối không có mã chi nhánh ở đầu tên (vd 5501_glcb41.txt) – không tách được số dư "
+            "theo từng chi nhánh")
+    progress(70, "Đang lập Mẫu 30...")
+    m30 = glcheck.build_mau30(parent, all_items, book, code, branches=branches)
+    m30.name = "Mau 30"
+    sheets = [m30]
+    if options.get("kiem_tra_gl", True):
+        chk, _diffs, _missing = glcheck.build_check_sheets(parent, all_items, book, code)
+        sheets.append(chk[0])
+    names = set(s.name for s in sheets)
+    for sh in details:
+        base = sh.name[:31]
+        name, i = base, 1
+        while name in names:
+            i += 1
+            name = ("%s_%d" % (base, i))[:31]
+        sh.name = name
+        names.add(name)
+        sheets.append(sh)
+    d = out_dir or settings.get("thu_muc_ket_qua") or os.path.join(jobs[0].folder, "Result")
+    os.makedirs(d, exist_ok=True)
+    path = _free_path(os.path.join(d, "%s_%s_TongHop.xlsx" % (parent_brcd, code)))
+    progress(75, "Đang ghi file tổng hợp...")
+    write_workbook(path, sheets, parent, progress=lambda i, t: progress(75 + 24.0 * i / max(t, 1), "Đang ghi Excel..."))
+    lech = sum(1 for r in m30.rows if r.kind == "sub1")
+    log("Đã tạo %s: Mẫu 30 gồm %d chi nhánh, %d dòng chênh lệch" % (os.path.basename(path), len(branches), lech))
+    progress(100, "Xong")
+    return path, _preview_of(m30)

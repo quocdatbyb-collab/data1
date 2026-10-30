@@ -554,7 +554,7 @@ def _header_heights(sheet: Sheet, widths):
         width = sum(widths[c] for c in range(c1, min(c2, len(widths) - 1) + 1)) or 8
         lines = 0
         for part in str(text or "").split("\n"):
-            lines += max(1, -(-int(len(part) * 1.1) // max(int(width), 1)))
+            lines += max(1, -(-int(len(part) * 1.3) // max(int(width), 1)))
         spans.append((r1, r2, lines * line_h + 3))
     for r1, r2, h in spans:
         if r1 == r2:
@@ -586,3 +586,8 @@ def _footer_cells(sheet: Sheet, add, fm):
         name = ctx.signer(key) if key else ""
         if name:
             add(names_row, c, name, fm.get(bold=True, align="center"))
+    notes = f.get("notes")
+    if notes:
+        r_note = names_row + 2 if any(ctx.signer(it[3]) for it in f["items"] if len(it) > 3) else r + 4
+        for i, text in enumerate(notes):
+            add(r_note + i, 0, text, fm.get(bold=(i == 0), italic=(i == 0)))

@@ -1,4 +1,4 @@
-# QT Quyết Toán 2.0 – Tạo mẫu biểu quyết toán (bản desktop)
+# QT Quyết Toán 2.1 – Tạo mẫu biểu quyết toán (bản desktop)
 
 **Tác giả: 8702 - Nguyễn Quốc Đạt**
 
@@ -11,7 +11,7 @@
 
 ## Tải về
 
-Vào mục **Releases** của kho mã → bản `qt-desktop-v2.0.0`:
+Vào mục **Releases** của kho mã → bản `qt-desktop-v2.1.0`:
 
 | File | Dùng cho |
 |---|---|
@@ -39,6 +39,7 @@ Chép file `.exe` vào một thư mục (có thể là USB) rồi chạy. Cấu 
 | DP – DS xác nhận số dư tiền gửi tổ chức (MSIT81), đọc số bằng chữ | ✔ | ✔ |
 | HTT – Sao kê dự thu cuối kỳ | ✔ | ✔ |
 | Đối chiếu cân đối GL (`*glcb41*`) → sheet CheckGL + Mẫu 30 | ✔ | ✔ (thêm cột Mã CN, tô đỏ dòng lệch) |
+| **Tổng hợp nhiều chi nhánh theo Mẫu 30/QT 2025** (sheet 1 = Mẫu 30, dòng cộng từng tài khoản, sheet chi tiết từng CN) | ✘ | ✔ mục "Tổng hợp chi nhánh" |
 | Tự ghép dữ liệu chia nhiều file | ✔ | ✔ |
 | Chế độ kiểm tra (50 dòng đầu) | ✔ | ✔ |
 | Tô màu dòng cộng | ✔ | ✔ |
@@ -59,7 +60,8 @@ Chép file `.exe` vào một thư mục (có thể là USB) rồi chạy. Cấu 
 1. Xuất file từ IPCAS, đặt tên `<mã CN>_<mẫu>.csv` (vd `5501_rt13.csv`, `5501_rt22_1.csv`).
 2. Mở chương trình → **Tạo mẫu biểu** → *Chọn file* → kiểm tra mã chi nhánh/mẫu → **TẠO MẪU BIỂU** (F5).
 3. Nhiều chi nhánh: **Xử lý hàng loạt** → chọn thư mục → *Quét thư mục* → *Chạy các mẫu đã chọn*.
-4. Vào **Cài đặt** để đặt ngày quyết toán, tỷ giá, khổ giấy, người ký, danh mục chi nhánh.
+4. Tổng hợp cấp tỉnh: **Tổng hợp chi nhánh** → chọn thư mục chứa `5501_rt13.csv`, `5502_rt13.csv`… và `5501_glcb41.txt`, `5502_glcb41.txt`… → nhập mã CN tổng hợp (vd 5500) → *Lập file tổng hợp*.
+5. Vào **Cài đặt** để đặt ngày quyết toán, tỷ giá, khổ giấy, người ký, danh mục chi nhánh.
 
 ## Mẫu biểu tuỳ chỉnh (tải lên mẫu mới)
 

@@ -66,8 +66,8 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: qt-desktop-v2.0.0
-          name: QT Quyết Toán 2.0.0 (Tác giả 8702 - Nguyễn Quốc Đạt)
+          tag_name: qt-desktop-v2.1.0
+          name: QT Quyết Toán 2.1.0 (Tác giả 8702 - Nguyễn Quốc Đạt)
           target_commitish: ${{ github.sha }}
           body: |
             Ứng dụng tạo mẫu biểu quyết toán – bản desktop cho Windows.

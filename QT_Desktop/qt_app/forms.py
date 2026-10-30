@@ -693,6 +693,7 @@ def build_rt20a(ctx, data):
            (R, 14, R + 1, 14, "Hiện trạng của tài sản đảm bảo"), (R, 15, R + 1, 15, "Giá trị thu hồi ước tính")]
     sh.header_cells = hc
     n = 0
+    gl = []
     for row in data.rows:
         if vn.num0(g(row, m["loc_1"])) + vn.num0(g(row, m["loc_2"])) <= 0:
             continue
@@ -703,6 +704,8 @@ def build_rt20a(ctx, data):
                                vn.to_number(g(row, m["lai_suat"]), g(row, m["lai_suat"])), "",
                                vn.num0(g(row, m["goc"])), "", vn.num0(g(row, m["lai"]))]):
             r.set(c, v)
+        gl.append(GLItem(ctx.brcd, "9711", "000", vn.num0(g(row, m["goc"])), vn.num0(g(row, m["goc"]))))
+        gl.append(GLItem(ctx.brcd, "9712", "000", vn.num0(g(row, m["lai"])), vn.num0(g(row, m["lai"]))))
     end = sh.next_row() - 1
     total = sh.add("total").set(0, "CỘNG")
     for c in (9, 11):
@@ -713,7 +716,7 @@ def build_rt20a(ctx, data):
     form_block(sh, "P", ["1. Mẫu số 20a/" + ctx.loai_qt, "2. NHNo loại 1, 2 gửi file về TSC", "3. Lưu tại Chi nhánh"])
     unit_line(sh, 8, "P")
     signatures(sh, ctx, [sig("C", SIG_LB), sig("E", SIG_TD_S), sig("G", SIG_KT_S), sig("M", SIG_GD)])
-    return [Output("rt20a", [sh])]
+    return [Output("rt20a", [sh], gl)]
 
 
 # ===========================================================================
